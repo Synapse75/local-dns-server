@@ -1,36 +1,29 @@
 import socket
 import time
-from dnslib import DNSRecord, QTYPE, RR, A
+from dnslib import DNSRecord, QTYPE
 
-# ========================
-# CONFIGURATION PARAMETERS
-# ========================
 LOCAL_IP = "127.0.0.1"
 LOCAL_PORT = 1234
-CACHE_TTL = 300  # seconds
+CACHE_TTL = 300
 PUBLIC_DNS = ("8.8.8.8", 53)
 
-# Flag: 1 = recursive/iterative, 0 = use public DNS
-flag = 0
+# 0 = public DNS, 1 = iterative
+flag = 1
 
 # Cache format: {domain: (ip, timestamp)}
 dns_cache = {}
 
-# Root DNS servers (subset)
+# Root DNS servers
 ROOT_SERVERS = [
-    "198.41.0.4",       # a.root-servers.net
-    "199.9.14.201",     # b.root-servers.net
-    "192.33.4.12",      # c.root-servers.net
-    "199.7.91.13",      # d.root-servers.net
-    "192.203.230.10",   # e.root-servers.net
+    "198.41.0.4",
+    "199.9.14.201",
+    "192.33.4.12",
+    "199.7.91.13",
+    "192.203.230.10",
 ]
 
 
-# ==========================
-# DNS QUERY IMPLEMENTATION
-# ==========================
-def resolve_from_public_server(query_data):
-    """Forward query to public DNS server (8.8.8.8)."""
+def public_dns_server(query_data):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.sendto(query_data, PUBLIC_DNS)
         print(f"[Public DNS] Querying {PUBLIC_DNS[0]}")
@@ -38,18 +31,14 @@ def resolve_from_public_server(query_data):
     return response
 
 
-def iterative_query(domain):
-    """Perform iterative DNS resolution manually."""
+def iterative_searching(domain):
     print(f"[Iterative] Starting resolution for {domain}")
     query = DNSRecord.question(domain)
     current_servers = ROOT_SERVERS.copy()
     max_hops = 10
     
-    for hop in range(max_hops):
-        print(f"[Iterative] --- Hop {hop+1} ---")
-        print(f"[Iterative] Servers to try: {current_servers}")
-        
-        next_servers = []  # 为下一跳准备服务器列表
+    for hop in range(max_hops):       
+        next_servers = []
         
         for server_ip in current_servers:
             try:
@@ -62,7 +51,6 @@ def iterative_query(domain):
                 reply = DNSRecord.parse(data)
                 print(f"[Iterative] Received response from {server_ip}")
                 
-                # 检查是否有答案
                 if reply.rr:
                     print(f"[Iterative] [Success] Found answer at {server_ip}")
                     for rr in reply.rr:
@@ -70,55 +58,36 @@ def iterative_query(domain):
                             print(f"[Iterative] Final IP: {rr.rdata}")
                     return data
                 
-                # 详细分析响应内容
-                print(f"[Iterative] Response analysis:")
-                print(f"  - Answers: {len(reply.rr)}")
-                print(f"  - Authority: {len(reply.auth)}")
-                print(f"  - Additional: {len(reply.ar)}")
-                
-                # 处理权威部分（NS记录）
                 ns_records = []
                 for rr in reply.auth:
                     if rr.rtype == QTYPE.NS:
                         ns_domain = str(rr.rdata)
                         ns_records.append(ns_domain)
-                        print(f"[Iterative] Found NS record: {ns_domain}")
                 
-                # 处理附加部分（A记录）
                 a_records = []
                 for rr in reply.ar:
                     if rr.rtype == QTYPE.A:
                         ip = str(rr.rdata)
                         a_records.append(ip)
-                        print(f"[Iterative] Found A record: {ip}")
                 
-                # 构建下一级服务器列表
                 if a_records:
-                    # 优先使用附加记录中的IP
                     next_servers.extend(a_records)
-                    print(f"[Iterative] Using A records from additional section: {a_records}")
                 elif ns_records:
-                    # 如果没有附加记录，解析NS域名
-                    print(f"[Iterative] Resolving NS domains: {ns_records}")
                     for ns_domain in ns_records:
                         try:
-                            # 注意：这里可能需要简化，避免复杂情况
-                            if ns_domain.endswith('.com.') or ns_domain.endswith('.net.'):
-                                # 对于常见的TLD，使用系统解析
+                            try:
                                 ns_ip = socket.gethostbyname(ns_domain.rstrip('.'))
                                 next_servers.append(ns_ip)
                                 print(f"[Iterative] Resolved {ns_domain} -> {ns_ip}")
-                            else:
-                                print(f"[Iterative] Skipping complex NS: {ns_domain}")
+                            except Exception as e:
+                                print(f"[Iterative] Failed to resolve {ns_domain}: {e}")
+
                         except Exception as e:
                             print(f"[Iterative] Failed to resolve {ns_domain}: {e}")
                             continue
                 
                 if next_servers:
-                    print(f"[Iterative] Next hop servers: {next_servers}")
-                    break  # 跳出当前服务器循环
-                else:
-                    print(f"[Iterative] No next servers found from {server_ip}")
+                    break
                     
             except socket.timeout:
                 print(f"[Iterative] Timeout from {server_ip}")
@@ -127,24 +96,18 @@ def iterative_query(domain):
                 print(f"[Iterative] Error querying {server_ip}: {e}")
                 continue
         
-        # 准备下一跳
         if next_servers:
             current_servers = next_servers
         else:
-            print(f"[Iterative] No more servers to try")
             break
     
     print(f"[Iterative] Resolution failed after {max_hops} hops")
     return None
 
 
-# ==========================
-# MAIN DNS SERVER FUNCTION  
-# ==========================
 def local_dns_server():
-    """Main DNS server loop."""
-    print(f"[*] Local DNS Server running on {LOCAL_IP}:{LOCAL_PORT}")
-    print("[*] Use flag=1 for iterative mode, flag=0 for public DNS mode\n")
+    print(f"[System] Local DNS Server running on {LOCAL_IP}:{LOCAL_PORT}")
+    print("[System] Use flag=1 for iterative mode, flag=0 for public DNS mode\n")
 
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server_socket:
         server_socket.bind((LOCAL_IP, LOCAL_PORT))
@@ -158,7 +121,7 @@ def local_dns_server():
             print(f"\n[Query] Domain requested: {qname}")
             print(f"[Query] Original ID: {original_id}")
 
-            # Check cache - 修改缓存检查逻辑
+            # Check cache
             if qname in dns_cache:
                 cached_data, timestamp = dns_cache[qname]
                 if time.time() - timestamp < CACHE_TTL:
@@ -182,14 +145,13 @@ def local_dns_server():
                     print(f"[Cache] Cache expired for {qname}")
                     del dns_cache[qname]
 
-            # Query resolution
             if flag == 0:
-                response_data = resolve_from_public_server(query_data)
+                response_data = public_dns_server(query_data)
             else:
-                response_data = iterative_query(qname)
+                response_data = iterative_searching(qname)
                 if not response_data:
                     print("[!] Iterative resolution failed. Using public DNS fallback.")
-                    response_data = resolve_from_public_server(query_data)
+                    response_data = public_dns_server(query_data)
 
             # Parse and cache response - 修改缓存存储逻辑
             if response_data:

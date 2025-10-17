@@ -1,5 +1,6 @@
 import socket
 import time
+import threading
 from dnslib import DNSRecord, QTYPE
 
 LOCAL_IP = "127.0.0.1"
@@ -8,7 +9,7 @@ CACHE_TTL = 300
 PUBLIC_DNS = ("8.8.8.8", 53)
 
 # 0 = public DNS, 1 = iterative
-flag = 0
+flag = 1
 
 # Cache format: {domain: (ip, timestamp)}
 dns_cache = {}
@@ -66,8 +67,6 @@ def iterative_searching(domain):
                                 final_response = DNSRecord.question(domain)
                                 final_response.header.id = reply.header.id
                                 final_response.header.qr = 1  # 设置为响应
-                                
-                                # 添加CNAME记录（只添加一次）
                                 final_response.add_answer(rr)
                                 
                                 # 添加解析后的A记录
@@ -141,32 +140,22 @@ def local_dns_server():
             qname = str(query.q.qname).strip(".")
             original_id = query.header.id
             
-            print(f"\n[Query] Domain requested: {qname}")
-            print(f"[Query] Original ID: {original_id}")
+            print(f"[Query] Domain requested: {qname}")
+            print(f"[Query] Original ID: {original_id}\n")
 
             # Check cache
             if qname in dns_cache:
                 cached_data, timestamp = dns_cache[qname]
-                if time.time() - timestamp < CACHE_TTL:
-                    print(f"[Cache] Found cached record for {qname}")
-                    
-                    # 直接返回缓存的完整响应数据，但更新ID
-                    cached_response = DNSRecord.parse(cached_data)
-                    cached_response.header.id = original_id
-                    
-                    remaining_ttl = CACHE_TTL - int(time.time() - timestamp)
-                    print(f"[Cache] TTL remaining: {remaining_ttl}s")
-                    
-                    # 更新响应中的TTL
-                    for rr in cached_response.rr:
-                        rr.ttl = remaining_ttl
-                    
-                    server_socket.sendto(cached_response.pack(), client_addr)
-                    print(f"[Cache] Sent cached response to client")
-                    continue
-                else:
-                    print(f"[Cache] Cache expired for {qname}")
-                    del dns_cache[qname]
+                print(f"[Cache] Found cached record for {qname}")
+                
+                cached_response = DNSRecord.parse(cached_data)
+                cached_response.header.id = original_id
+                
+                remaining_ttl = CACHE_TTL - int(time.time() - timestamp)
+                print(f"[Cache] TTL remaining: {remaining_ttl}s")
+                
+                server_socket.sendto(cached_response.pack(), client_addr)
+                continue
 
             if flag == 0:
                 response_data = public_dns_server(query_data)
@@ -180,7 +169,6 @@ def local_dns_server():
             if response_data:
                 response = DNSRecord.parse(response_data)
                 
-                # 关键修复：缓存完整的响应数据，而不是只缓存A记录
                 dns_cache[qname] = (response_data, time.time())
                 
                 # 恢复原始ID
@@ -189,7 +177,6 @@ def local_dns_server():
                 
                 print(f"[Response] Sending response with ID: {original_id}")
                 
-                # 打印缓存的内容信息
                 cached_records = []
                 for rr in response.rr:
                     if rr.rtype == QTYPE.A:
@@ -205,5 +192,32 @@ def local_dns_server():
                 print("[!] No valid response found.")
 
 
+def background_cache_cleaner():
+    """后台缓存清理线程"""
+    while True:
+        time.sleep(60)  # 每60秒清理一次
+        clean_expired_cache()
+
+
+def clean_expired_cache():
+    print("[Cache Cleaner] Running cache cleanup...\n")
+    current_time = time.time()
+    expired_domains = []
+    
+    for domain, (cached_data, timestamp) in dns_cache.items():
+        if current_time - timestamp >= CACHE_TTL:
+            expired_domains.append(domain)
+    
+    for domain in expired_domains:
+        del dns_cache[domain]
+    
+    if expired_domains:
+        print(f"[Cache Cleaner] Cleaned {len(expired_domains)} expired entries: {expired_domains}\n")
+
+
 if __name__ == "__main__":
+    cleaner_thread = threading.Thread(target=background_cache_cleaner, daemon=True)
+    cleaner_thread.start()
+    print(f"[System] Cache cleaner started, will run every 60 seconds")
+    
     local_dns_server()

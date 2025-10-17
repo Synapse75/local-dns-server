@@ -8,7 +8,7 @@ CACHE_TTL = 300
 PUBLIC_DNS = ("8.8.8.8", 53)
 
 # 0 = public DNS, 1 = iterative
-flag = 1
+flag = 0
 
 # Cache format: {domain: (ip, timestamp)}
 dns_cache = {}
@@ -52,11 +52,31 @@ def iterative_searching(domain):
                 print(f"[Iterative] Received response from {server_ip}")
                 
                 if reply.rr:
-                    print(f"[Iterative] [Success] Found answer at {server_ip}")
                     for rr in reply.rr:
                         if rr.rtype == QTYPE.A:
-                            print(f"[Iterative] Final IP: {rr.rdata}")
-                    return data
+                            print(f"[Iterative] [Success] Found A record: {rr.rdata}")
+                            return data
+                        elif rr.rtype == QTYPE.CNAME:
+                            cname_target = str(rr.rdata).rstrip('.')
+                            print(f"[Iterative] Found CNAME: {domain} -> {cname_target}")
+                            # 递归解析CNAME目标
+                            cname_response = iterative_searching(cname_target)
+                            if cname_response:
+                                # 创建新的响应，而不是修改原有响应
+                                final_response = DNSRecord.question(domain)
+                                final_response.header.id = reply.header.id
+                                final_response.header.qr = 1  # 设置为响应
+                                
+                                # 添加CNAME记录（只添加一次）
+                                final_response.add_answer(rr)
+                                
+                                # 添加解析后的A记录
+                                cname_reply = DNSRecord.parse(cname_response)
+                                for cname_rr in cname_reply.rr:
+                                    if cname_rr.rtype == QTYPE.A:
+                                        final_response.add_answer(cname_rr)
+                                
+                                return final_response.pack()
                 
                 ns_records = []
                 for rr in reply.auth:
@@ -75,13 +95,16 @@ def iterative_searching(domain):
                 elif ns_records:
                     for ns_domain in ns_records:
                         try:
-                            try:
-                                ns_ip = socket.gethostbyname(ns_domain.rstrip('.'))
-                                next_servers.append(ns_ip)
-                                print(f"[Iterative] Resolved {ns_domain} -> {ns_ip}")
-                            except Exception as e:
-                                print(f"[Iterative] Failed to resolve {ns_domain}: {e}")
-
+                            print(f"[Iterative] Resolving NS: {ns_domain}")
+                            ns_response = iterative_searching(ns_domain)
+                            if ns_response:
+                                ns_reply = DNSRecord.parse(ns_response)
+                                for ns_rr in ns_reply.rr:
+                                    if ns_rr.rtype == QTYPE.A:
+                                        ns_ip = str(ns_rr.rdata)
+                                        next_servers.append(ns_ip)
+                                        print(f"[Iterative] Resolved {ns_domain} -> {ns_ip}")
+                                        break
                         except Exception as e:
                             print(f"[Iterative] Failed to resolve {ns_domain}: {e}")
                             continue

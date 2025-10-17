@@ -27,39 +27,48 @@ ROOT_SERVERS = [
 def public_dns_server(query_data):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.sendto(query_data, PUBLIC_DNS)
-        print(f"[Public DNS] Querying {PUBLIC_DNS[0]}")
+        print(f"[Public DNS] Querying {PUBLIC_DNS[0]}\n")
         response, _ = s.recvfrom(4096)
+
+    reply = DNSRecord.parse(response)
+
+    for rr in reply.rr:
+        if rr.rtype == QTYPE.CNAME:
+            print(f"[Public DNS] CNAME record: {rr.rname} -> {rr.rdata}")
+        elif rr.rtype == QTYPE.A:
+            print(f"[Public DNS] A record: {rr.rname} -> {rr.rdata}")
+    print("")
     return response
 
 
+
 def iterative_searching(domain):
-    print(f"[Iterative] Starting resolution for {domain}")
+    print(f"[Iterative] Start resolving {domain}\n")
     query = DNSRecord.question(domain)
     current_servers = ROOT_SERVERS.copy()
-    max_hops = 10
+    max_hops = 20
     
-    for hop in range(max_hops):       
+    for hop in range(max_hops):
+        print(f"[Iterative] Hop {hop+1}: trying servers {current_servers}\n")
         next_servers = []
         
         for server_ip in current_servers:
             try:
-                print(f"[Iterative] Querying server: {server_ip}")
+                print(f"[Iterative] Querying: {server_ip}\n")
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                     s.settimeout(5)
                     s.sendto(query.pack(), (server_ip, 53))
                     data, _ = s.recvfrom(4096)
                 
                 reply = DNSRecord.parse(data)
-                print(f"[Iterative] Received response from {server_ip}\n")
-                
                 if reply.rr:
                     for rr in reply.rr:
                         if rr.rtype == QTYPE.A:
-                            print(f"[Iterative] [Success] Found A record: {rr.rdata}\n")
+                            print(f"[Iterative] A record: {rr.rdata}\n")
                             return data
                         elif rr.rtype == QTYPE.CNAME:
                             cname_target = str(rr.rdata).rstrip('.')
-                            print(f"[Iterative] Found CNAME: {domain} -> {cname_target}\n")
+                            print(f"[Iterative] CNAME found: {domain} -> {cname_target}\n")
                             cname_response = iterative_searching(cname_target)
                             if cname_response:
                                 final_response = DNSRecord.question(domain)
@@ -91,7 +100,6 @@ def iterative_searching(domain):
                 elif ns_records:
                     for ns_domain in ns_records:
                         try:
-                            print(f"[Iterative] Resolving NS: {ns_domain}")
                             ns_response = iterative_searching(ns_domain)
                             if ns_response:
                                 ns_reply = DNSRecord.parse(ns_response)
@@ -112,15 +120,13 @@ def iterative_searching(domain):
                 print(f"[Iterative] Timeout from {server_ip}")
                 continue
             except Exception as e:
-                print(f"[Iterative] Error querying {server_ip}: {e}")
                 continue
         
         if next_servers:
             current_servers = next_servers
         else:
             break
-    
-    print(f"[Iterative] Resolution failed after {max_hops} hops")
+
     return None
 
 
@@ -132,7 +138,12 @@ def local_dns_server():
         server_socket.bind((LOCAL_IP, LOCAL_PORT))
 
         while True:
-            query_data, client_addr = server_socket.recvfrom(4096)
+            try:
+                query_data, client_addr = server_socket.recvfrom(4096)
+            except ConnectionResetError:
+                print("[Warning] Client closed the connection unexpectedly. Continuing...\n")
+                continue
+
             query = DNSRecord.parse(query_data)
             qname = str(query.q.qname).strip(".")
             original_id = query.header.id
@@ -143,7 +154,7 @@ def local_dns_server():
             # Check cache
             if qname in dns_cache:
                 cached_data, timestamp = dns_cache[qname]
-                print(f"[Cache] Found cached record for {qname}")
+                print(f"[Cache] Hit for {qname}")
                 
                 cached_response = DNSRecord.parse(cached_data)
                 cached_response.header.id = original_id
@@ -153,13 +164,16 @@ def local_dns_server():
                 
                 server_socket.sendto(cached_response.pack(), client_addr)
                 continue
+            else:
+                print(f"[Cache] Miss for {qname}")
 
             if flag == 0:
+                print(f"[Mode] Using Public DNS mode\n")
                 response_data = public_dns_server(query_data)
             else:
+                print(f"[Mode] Using Iterative mode\n")
                 response_data = iterative_searching(qname)
                 if not response_data:
-                    print("[!] Iterative resolution failed. Using public DNS fallback.")
                     response_data = public_dns_server(query_data)
 
             if response_data:
@@ -170,8 +184,6 @@ def local_dns_server():
                 response.header.id = original_id
                 response_data = response.pack()
                 
-                print(f"[Response] Sending response with ID: {original_id}")
-                
                 cached_records = []
                 for rr in response.rr:
                     if rr.rtype == QTYPE.A:
@@ -180,11 +192,9 @@ def local_dns_server():
                         cached_records.append(f"CNAME:{rr.rdata}")
                 
                 if cached_records:
-                    print(f"[Cache Update] {qname} -> {', '.join(cached_records)}")
+                    print(f"[Cache Update] {qname} -> {', '.join(cached_records)}\n")
                 
                 server_socket.sendto(response_data, client_addr)
-            else:
-                print("[!] No valid response found.")
 
 
 def background_cache_cleaner():

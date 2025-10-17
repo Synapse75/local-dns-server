@@ -7,9 +7,9 @@ The first assignment of CUHKSZ course ECE4016
 bash
 python LocalDNS.py
 2. Use dig to test the server:
-# Query example.com
+**Query example.com**
 dig www.example.com @127.0.0.1 -p 1234
-# Query baidu.com
+**Query baidu.com**
 dig www.baidu.com @127.0.0.1 -p 1234
 3. Set the mode in LocalDNS.py:
 flag = 1 → iterative searching

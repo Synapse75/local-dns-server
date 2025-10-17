@@ -49,12 +49,12 @@ def iterative_searching(domain):
     max_hops = 20
     
     for hop in range(max_hops):
-        print(f"[Iterative] Hop {hop+1}: trying servers {current_servers}\n")
+        print(f"[Iterative] Hop {hop+1}: trying servers {current_servers}")
         next_servers = []
         
         for server_ip in current_servers:
             try:
-                print(f"[Iterative] Querying: {server_ip}\n")
+                print(f"[Iterative] Querying: {server_ip}")
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                     s.settimeout(5)
                     s.sendto(query.pack(), (server_ip, 53))
@@ -64,11 +64,11 @@ def iterative_searching(domain):
                 if reply.rr:
                     for rr in reply.rr:
                         if rr.rtype == QTYPE.A:
-                            print(f"[Iterative] A record: {rr.rdata}\n")
+                            print(f"[Iterative] A record: {rr.rdata}")
                             return data
                         elif rr.rtype == QTYPE.CNAME:
                             cname_target = str(rr.rdata).rstrip('.')
-                            print(f"[Iterative] CNAME found: {domain} -> {cname_target}\n")
+                            print(f"[Iterative] CNAME found: {domain} -> {cname_target}")
                             cname_response = iterative_searching(cname_target)
                             if cname_response:
                                 final_response = DNSRecord.question(domain)
@@ -126,7 +126,7 @@ def iterative_searching(domain):
             current_servers = next_servers
         else:
             break
-
+    print("")
     return None
 
 

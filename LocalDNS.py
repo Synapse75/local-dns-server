@@ -154,7 +154,7 @@ def local_dns_server():
             # Check cache
             if qname in dns_cache:
                 cached_data, timestamp = dns_cache[qname]
-                print(f"[Cache] Hit for {qname}")
+                print(f"[Cache] Hit for {qname}\n")
                 
                 cached_response = DNSRecord.parse(cached_data)
                 cached_response.header.id = original_id
@@ -165,7 +165,7 @@ def local_dns_server():
                 server_socket.sendto(cached_response.pack(), client_addr)
                 continue
             else:
-                print(f"[Cache] Miss for {qname}")
+                print(f"[Cache] Miss for {qname}\n")
 
             if flag == 0:
                 print(f"[Mode] Using Public DNS mode\n")

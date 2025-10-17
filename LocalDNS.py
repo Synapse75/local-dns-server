@@ -160,8 +160,17 @@ def local_dns_server():
                 cached_response.header.id = original_id
                 
                 remaining_ttl = CACHE_TTL - int(time.time() - timestamp)
-                print(f"[Cache] TTL remaining: {remaining_ttl}s")
+                print(f"[Cache] TTL remaining: {remaining_ttl}s\n")
                 
+                cached_records = []
+                for rr in cached_response.rr:
+                    if rr.rtype == QTYPE.A:
+                        cached_records.append(f"A:{rr.rdata}")
+                    elif rr.rtype == QTYPE.CNAME:
+                        cached_records.append(f"CNAME:{rr.rdata}")
+                if cached_records:
+                    print(f"[Cache] Records: {', '.join(cached_records)}\n")
+
                 server_socket.sendto(cached_response.pack(), client_addr)
                 continue
             else:

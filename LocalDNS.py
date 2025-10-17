@@ -50,26 +50,23 @@ def iterative_searching(domain):
                     data, _ = s.recvfrom(4096)
                 
                 reply = DNSRecord.parse(data)
-                print(f"[Iterative] Received response from {server_ip}")
+                print(f"[Iterative] Received response from {server_ip}\n")
                 
                 if reply.rr:
                     for rr in reply.rr:
                         if rr.rtype == QTYPE.A:
-                            print(f"[Iterative] [Success] Found A record: {rr.rdata}")
+                            print(f"[Iterative] [Success] Found A record: {rr.rdata}\n")
                             return data
                         elif rr.rtype == QTYPE.CNAME:
                             cname_target = str(rr.rdata).rstrip('.')
                             print(f"[Iterative] Found CNAME: {domain} -> {cname_target}")
-                            # 递归解析CNAME目标
                             cname_response = iterative_searching(cname_target)
                             if cname_response:
-                                # 创建新的响应，而不是修改原有响应
                                 final_response = DNSRecord.question(domain)
                                 final_response.header.id = reply.header.id
-                                final_response.header.qr = 1  # 设置为响应
+                                final_response.header.qr = 1
                                 final_response.add_answer(rr)
                                 
-                                # 添加解析后的A记录
                                 cname_reply = DNSRecord.parse(cname_response)
                                 for cname_rr in cname_reply.rr:
                                     if cname_rr.rtype == QTYPE.A:
@@ -165,13 +162,11 @@ def local_dns_server():
                     print("[!] Iterative resolution failed. Using public DNS fallback.")
                     response_data = public_dns_server(query_data)
 
-            # Parse and cache response - 修改缓存存储逻辑
             if response_data:
                 response = DNSRecord.parse(response_data)
                 
                 dns_cache[qname] = (response_data, time.time())
                 
-                # 恢复原始ID
                 response.header.id = original_id
                 response_data = response.pack()
                 
@@ -193,9 +188,8 @@ def local_dns_server():
 
 
 def background_cache_cleaner():
-    """后台缓存清理线程"""
     while True:
-        time.sleep(60)  # 每60秒清理一次
+        time.sleep(60)
         clean_expired_cache()
 
 

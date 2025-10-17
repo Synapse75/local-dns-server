@@ -59,7 +59,7 @@ def iterative_searching(domain):
                             return data
                         elif rr.rtype == QTYPE.CNAME:
                             cname_target = str(rr.rdata).rstrip('.')
-                            print(f"[Iterative] Found CNAME: {domain} -> {cname_target}")
+                            print(f"[Iterative] Found CNAME: {domain} -> {cname_target}\n")
                             cname_response = iterative_searching(cname_target)
                             if cname_response:
                                 final_response = DNSRecord.question(domain)
